@@ -28,12 +28,12 @@ body{
   flex:0 0 42vh;min-height:220px;position:relative;
   background:#1B1F26;border-bottom:1px solid var(--line);
 }
-#stage canvas{position:absolute;inset:0;display:block;width:100%;height:100%}
+#stage canvas{position:absolute;inset:0;z-index:0;display:block;width:100%;height:100%}
 
 /* ---- HUD ---- */
 #hud{
   position:absolute;top:calc(8px + env(safe-area-inset-top));left:8px;right:8px;
-  display:flex;flex-wrap:wrap;gap:6px;align-items:center;pointer-events:none;
+  display:flex;flex-wrap:wrap;gap:6px;align-items:center;pointer-events:none;z-index:2;
 }
 .hud{
   background:rgba(20,23,28,.82);border:1px solid var(--line);border-radius:8px;
@@ -46,18 +46,26 @@ body{
 #repBar{height:3px;background:var(--line);border-radius:2px;overflow:hidden}
 #repBar i{display:block;height:100%;background:var(--ok);width:30%}
 
-#controls{
-  position:absolute;right:8px;bottom:8px;display:flex;gap:6px;align-items:center;
+#bar{
+  flex:none;display:flex;align-items:center;gap:6px;
+  padding:8px 10px;background:var(--panel);
+  border-bottom:1px solid var(--line);overflow-x:auto;
+  scrollbar-width:none;
 }
-#controls button,#speeds button{
-  font:inherit;font-size:.78rem;font-family:inherit;
-  background:rgba(20,23,28,.85);color:var(--muted);
-  border:1px solid var(--line);border-radius:7px;
-  padding:6px 10px;cursor:pointer;
+#bar::-webkit-scrollbar{display:none}
+#bar .spacer{flex:1;min-width:8px}
+#bar button,#speeds button{
+  font:inherit;font-size:.8rem;font-family:inherit;
+  background:var(--panel2);color:var(--muted);
+  border:1px solid var(--line);border-radius:8px;
+  padding:8px 13px;cursor:pointer;white-space:nowrap;
 }
+#bar button:active{transform:translateY(1px)}
 #speeds{display:flex;gap:4px}
-#speeds button.on{background:var(--work);color:#0B1220;border-color:var(--work);font-weight:600}
-#controls button.accent{background:var(--ok);color:#0B1220;border-color:var(--ok);font-weight:600}
+#speeds button{padding:8px 11px;min-width:42px}
+#speeds button.on{background:var(--work);color:#0B1220;border-color:var(--work);font-weight:700}
+#bar button.accent{background:var(--ok);color:#0B1220;border-color:var(--ok);font-weight:700}
+#btnPause{min-width:48px}
 
 /* ---- パネル ---- */
 #panel{flex:1;display:flex;flex-direction:column;min-height:0;background:var(--panel)}
@@ -170,7 +178,9 @@ body{
 .logrow.bad{color:var(--bad)}
 
 /* ---- モーダル ---- */
-#modal{
+/* hidden 属性を確実に効かせるため、既定を none にして :not([hidden]) で開く */
+#modal{display:none}
+#modal:not([hidden]){
   position:fixed;inset:0;background:rgba(10,12,15,.72);
   display:flex;align-items:center;justify-content:center;padding:18px;z-index:50;
 }
@@ -195,4 +205,13 @@ body{
   #app{flex-direction:row}
   #stage{flex:1 1 auto;height:100dvh;border-bottom:0;border-right:1px solid var(--line)}
   #panel{flex:0 0 420px}
+}
+
+/* ---- 起動エラーの表示 ---- */
+#errbar{
+  position:fixed;left:0;right:0;top:0;z-index:99;
+  background:var(--bad);color:#12161B;
+  font-size:.76rem;line-height:1.6;padding:8px 12px;
+  white-space:pre-wrap;word-break:break-word;
+  padding-top:calc(8px + env(safe-area-inset-top));
 }
