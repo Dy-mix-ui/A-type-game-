@@ -60,14 +60,18 @@ window.WORLD = (function () {
   }
 
   function buildLights() {
-    scene.add(new THREE.AmbientLight('#FFFFFF', 0.82));
-    const key = new THREE.DirectionalLight('#FFFBF2', 0.55);
-    key.position.set(12, 22, 9);
+    scene.add(new THREE.AmbientLight('#FFFFFF', 0.72));
+    scene.add(new THREE.HemisphereLight('#FFFFFF', '#C9D6D2', 0.45));
+    const key = new THREE.DirectionalLight('#FFFBF2', 0.5);
+    key.position.set(13, 24, 10);
     key.castShadow = true;
-    key.shadow.mapSize.set(1024, 1024);
+    key.shadow.mapSize.set(2048, 2048);
+    // 広い床に自己影のノイズが出るのを防ぐ
+    key.shadow.bias = -0.0016;
+    key.shadow.normalBias = 0.045;
     const s = key.shadow.camera;
-    s.left = -16; s.right = 16; s.top = 16; s.bottom = -16;
-    s.near = 1; s.far = 70;
+    s.left = -13; s.right = 13; s.top = 13; s.bottom = -13;
+    s.near = 1; s.far = 60;
     scene.add(key);
     const fill = new THREE.DirectionalLight('#DCE8F5', 0.22);
     fill.position.set(-10, 12, -8);
@@ -90,9 +94,11 @@ window.WORLD = (function () {
     wood.castShadow = false;
     scene.add(wood);
 
-    // 壁（低め。俯瞰で中が見えるように）
-    scene.add(box(W, 2.6, 0.24, C.wall, 0, 1.3, -Dp / 2));
-    scene.add(box(0.24, 2.6, Dp, C.wall, -W / 2, 1.3, 0));
+    // 壁（低め。俯瞰で中が見えるように）。影は落とさない
+    const wallA = box(W, 2.6, 0.24, C.wall, 0, 1.3, -Dp / 2);
+    const wallB = box(0.24, 2.6, Dp, C.wall, -W / 2, 1.3, 0);
+    wallA.castShadow = false; wallB.castShadow = false;
+    scene.add(wallA); scene.add(wallB);
 
     // 窓
     for (let i = -2; i <= 2; i++) {
