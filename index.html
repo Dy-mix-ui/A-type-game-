@@ -28,21 +28,22 @@
       </div>
     </div>
 
-    <div id="controls">
-      <button id="btnNew" title="最初から">新規</button>
-      <button id="btnSave">保存</button>
-      <button id="btnEndDay" class="accent" hidden>今日を終える</button>
-      <button id="btnPause">▶</button>
-      <div id="speeds">
-        <button data-sp="1">1x</button>
-        <button data-sp="2">2x</button>
-        <button data-sp="4">4x</button>
-        <button data-sp="8">8x</button>
-      </div>
-    </div>
   </div>
 
   <div id="panel">
+  <div id="bar">
+    <button id="btnPause">❚❚</button>
+    <div id="speeds">
+      <button data-sp="1">1x</button>
+      <button data-sp="2">2x</button>
+      <button data-sp="4">4x</button>
+      <button data-sp="8">8x</button>
+    </div>
+    <button id="btnEndDay" class="accent" hidden>今日を終える</button>
+    <span class="spacer"></span>
+    <button id="btnSave">保存</button>
+    <button id="btnNew">新規</button>
+  </div>
     <div id="tabs">
       <button data-tab="offers">引き合い<span class="badge"></span></button>
       <button data-tab="projects">進行中<span class="badge"></span></button>
@@ -56,10 +57,17 @@
 
 </div>
 
+<div id="errbar" hidden></div>
 <div id="modal" hidden></div>
 <div id="toast" hidden></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+/* cdnjs が落ちている場合のフォールバック */
+if (!window.THREE) {
+  document.write('<scr' + 'ipt src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"><\/scr' + 'ipt>');
+}
+</script>
 <script src="data.js"></script>
 <script src="sim.js"></script>
 <script src="world.js"></script>
