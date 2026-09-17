@@ -19,15 +19,42 @@ window.UI = (function () {
     return e;
   }
 
-  function skillBar(sk, needLv) {
-    const wrap = el('span', 'sk');
-    for (let i = 1; i <= 5; i++) {
+  function skillBar(sk, max, needLv) {
+    max = max || 5;
+    const wrap = el('span', 'sk' + (max > 5 ? ' sk10' : ''));
+    for (let i = 1; i <= max; i++) {
       const d = el('i');
       if (i <= sk.lv) d.classList.add('on');
       if (needLv && i === needLv) d.classList.add('mark');
       wrap.appendChild(d);
     }
     return wrap;
+  }
+
+  // 案件の要求スキルに対して、その人がどれくらい適任かの目安マーク
+  function fitMark(person, need) {
+    const f = window.SIM.skillFactor(person, need);
+    if (f >= 1.25) return { cls: 'great', text: '◎' };
+    if (f >= 0.9) return { cls: 'ok', text: '○' };
+    return { cls: 'weak', text: '△' };
+  }
+
+  // 案件の要求を満たす（レベル以上を持つ）人の名前を集める。パッと見の適任者表示に使う
+  function suitedNames(need, kind) {
+    const s = S();
+    if (kind === 'teaching') {
+      return s.staff.filter(st => st.roles && st.roles.teacher >= need.teacher).map(st => st.name + '（職員）');
+    }
+    const meets = p => Object.keys(need).every(k => p.skills && p.skills[k].lv >= need[k]);
+    return s.users.filter(u => meets(u)).map(u => u.name)
+      .concat(s.staff.filter(st => st.activeRole === 'designer' && meets(st)).map(st => st.name + '（職員）'));
+  }
+
+  // need のキーが技術スキルか職員の役割かに応じてラベルを引く
+  function needLabel(k) {
+    const sk = D.SKILLS.find(x => x.key === k);
+    if (sk) return sk.label;
+    return D.ROLES[k] ? D.ROLES[k].label : k;
   }
 
   /* ---------- 上部ステータス ---------- */
@@ -45,9 +72,8 @@ window.UI = (function () {
     $('hudPeople').textContent = `${present} / ${s.users.length}`;
 
     document.querySelectorAll('#speeds button').forEach(b => {
-      b.classList.toggle('on', !s.paused && +b.dataset.sp === s.speed);
+      b.classList.toggle('on', +b.dataset.sp === s.speed);
     });
-    $('btnPause').textContent = s.paused ? '▶' : '❚❚';
   }
 
   /* ---------- タブ ---------- */
@@ -72,14 +98,17 @@ window.UI = (function () {
       const c = el('div', 'card');
       const h = el('div', 'card-h');
       h.appendChild(el('span', 'name', o.name));
-      h.appendChild(el('span', 'tier t' + o.tier, ['個人', '中小企業', '大企業'][o.tier - 1]));
+      if (o.kind === 'teaching') {
+        h.appendChild(el('span', 'tier teach', '講師案件'));
+      } else {
+        h.appendChild(el('span', 'tier t' + o.tier, ['個人', '中小企業', '大企業'][o.tier - 1]));
+      }
       c.appendChild(h);
 
       const need = el('div', 'needs');
       Object.keys(o.need).forEach(k => {
-        const lab = D.SKILLS.find(x => x.key === k).label;
         const chip = el('span', 'chip');
-        chip.appendChild(el('b', null, lab));
+        chip.appendChild(el('b', null, needLabel(k)));
         chip.appendChild(el('span', null, 'Lv' + o.need[k]));
         need.appendChild(chip);
       });
@@ -91,7 +120,8 @@ window.UI = (function () {
       meta.appendChild(el('span', null, '工数 ' + o.effort));
       c.appendChild(meta);
 
-      c.appendChild(el('p', 'hint', capacityHint(o)));
+      c.appendChild(el('p', 'hint', o.kind === 'teaching' ? teachingHint(o) : capacityHint(o)));
+      c.appendChild(el('p', 'fitline', fitLine(o.need, o.kind)));
 
       const act = el('div', 'actions');
       const yes = el('button', 'primary', '受注する');
@@ -115,6 +145,21 @@ window.UI = (function () {
     return `条件を満たす利用者 ${able}名。全員で当たれば概ね ${days} 日前後の見込みです。`;
   }
 
+  function fitLine(need, kind) {
+    const names = suitedNames(need, kind);
+    if (!names.length) return '適任者：今のところいません（レベル不足）。';
+    const shown = names.slice(0, 3).join('、');
+    const rest = names.length > 3 ? ` ほか${names.length - 3}名` : '';
+    return `適任者：${shown}${rest}`;
+  }
+
+  function teachingHint(o) {
+    const s = S();
+    const able = s.staff.filter(st => st.roles && st.roles.teacher >= o.need.teacher).length;
+    if (!able) return '今の職員では対応できません。受注はできますが、進みがかなり遅くなります。';
+    return `対応できる職員 ${able}名。担当中は社内の勉強は見られなくなります。`;
+  }
+
   /* ---------- 進行中 ---------- */
   function viewProjects() {
     const s = S(), box = el('div');
@@ -123,6 +168,7 @@ window.UI = (function () {
       const c = el('div', 'card');
       const h = el('div', 'card-h');
       h.appendChild(el('span', 'name', p.name));
+      if (p.kind === 'teaching') h.appendChild(el('span', 'tier teach', '講師案件'));
       const left = p.dueDay - s.day;
       const due = el('span', 'tier ' + (left <= 1 ? 'danger' : left <= 3 ? 'warn' : 't2'),
         left < 0 ? `${-left}日超過` : `あと${left}日`);
@@ -138,9 +184,23 @@ window.UI = (function () {
       const meta = el('div', 'meta');
       meta.appendChild(el('span', null, Math.round(p.progress / p.effort * 100) + '%'));
       meta.appendChild(el('span', null, '報酬 ' + yen(p.pay)));
-      const on = s.users.filter(u => u.assigned === p.id).length;
-      meta.appendChild(el('span', null, '担当 ' + on + '名'));
+      const workers = s.users.filter(u => u.assigned === p.id)
+        .concat(s.staff.filter(st => st.assigned === p.id));
+      meta.appendChild(el('span', null, '担当 ' + workers.length + '名'));
       c.appendChild(meta);
+
+      if (workers.length) {
+        const wl = el('p', 'fitline');
+        workers.forEach((w, i) => {
+          if (i) wl.appendChild(document.createTextNode('　'));
+          wl.appendChild(document.createTextNode(w.name));
+          const m = fitMark(w, p.need);
+          wl.appendChild(el('span', 'fit ' + m.cls, m.text));
+        });
+        c.appendChild(wl);
+      } else {
+        c.appendChild(el('p', 'fitline', fitLine(p.need, p.kind)));
+      }
       box.appendChild(c);
     });
 
@@ -172,10 +232,11 @@ window.UI = (function () {
       D.SKILLS.forEach(def => {
         const row = el('div', 'skrow');
         row.appendChild(el('span', 'sklabel', def.label));
-        row.appendChild(skillBar(u.skills[def.key]));
+        row.appendChild(skillBar(u.skills[def.key], D.SKILL_MAX));
         const s2 = u.skills[def.key];
-        const pct = s2.lv >= 5 ? 100 : Math.round(s2.exp / D.EXP_TO_NEXT[s2.lv] * 100);
-        row.appendChild(el('span', 'skexp', s2.lv >= 5 ? '習得済' : pct + '%'));
+        const maxed = s2.lv >= D.SKILL_MAX;
+        const pct = maxed ? 100 : Math.round(s2.exp / D.EXP_TO_NEXT[s2.lv] * 100);
+        row.appendChild(el('span', 'skexp', 'Lv' + s2.lv + (maxed ? ' 習得済' : ' ' + pct + '%')));
         sk.appendChild(row);
       });
       c.appendChild(sk);
@@ -217,8 +278,9 @@ window.UI = (function () {
         const none = el('option', null, '手が空いている');
         none.value = '';
         sel.appendChild(none);
-        s.projects.forEach(p => {
-          const o = el('option', null, p.name);
+        s.projects.filter(p => p.kind !== 'teaching').forEach(p => {
+          const m = fitMark(u, p.need);
+          const o = el('option', null, `${m.text} ${p.name}`);
           o.value = p.id;
           if (u.assigned === p.id) o.selected = true;
           sel.appendChild(o);
@@ -253,17 +315,60 @@ window.UI = (function () {
       h.appendChild(el('span', 'name', st.name));
       h.appendChild(el('span', 'tier ' + (st.present ? 't2' : 'warn'), st.present ? stateLabel(st.state) : '欠勤'));
       c.appendChild(h);
+
+      const roleKeys = Object.keys(st.roles);
       const sk = el('div', 'skills');
-      Object.keys(st.roles).forEach(r => {
+      roleKeys.forEach(r => {
         const row = el('div', 'skrow');
         row.appendChild(el('span', 'sklabel wide', D.ROLES[r].label));
-        row.appendChild(skillBar({ lv: st.roles[r] }));
+        row.appendChild(skillBar({ lv: st.roles[r] }, 4));
         sk.appendChild(row);
       });
       c.appendChild(sk);
-      Object.keys(st.roles).forEach(r => {
-        c.appendChild(el('p', 'hint', D.ROLES[r].desc));
+
+      const sk2 = el('div', 'skills');
+      D.SKILLS.forEach(def => {
+        const row = el('div', 'skrow');
+        row.appendChild(el('span', 'sklabel', def.label));
+        row.appendChild(skillBar(st.skills[def.key], D.STAFF_SKILL_MAX));
+        row.appendChild(el('span', 'skexp', 'Lv' + st.skills[def.key].lv));
+        sk2.appendChild(row);
       });
+      c.appendChild(sk2);
+
+      if (roleKeys.length > 1) {
+        const seg = el('div', 'seg2');
+        roleKeys.forEach(r => {
+          const b = el('button', st.activeRole === r ? 'on' : null, D.ROLES[r].label);
+          b.onclick = () => { window.SIM.setActiveRole(st.id, r); render(); };
+          seg.appendChild(b);
+        });
+        c.appendChild(seg);
+      }
+      let roleHint = D.ROLES[st.activeRole].desc;
+      if (st.activeRole === 'teacher' && st.assigned) roleHint += '（今は講師案件で手一杯のため、社内の勉強は見ていません）';
+      c.appendChild(el('p', 'hint', roleHint));
+
+      if (st.activeRole === 'designer' || st.activeRole === 'teacher') {
+        const wantTeaching = st.activeRole === 'teacher';
+        const relevant = s.projects.filter(p => (p.kind === 'teaching') === wantTeaching);
+        const sel = el('select');
+        const none = el('option', null, '手が空いている');
+        none.value = '';
+        sel.appendChild(none);
+        relevant.forEach(p => {
+          const m = fitMark(st, p.need);
+          const o = el('option', null, `${m.text} ${p.name}`);
+          o.value = p.id;
+          if (st.assigned === p.id) o.selected = true;
+          sel.appendChild(o);
+        });
+        sel.onchange = () => { window.SIM.assignStaff(st.id, sel.value || null); render(); };
+        const lab = el('label', 'field');
+        lab.appendChild(el('span', null, '担当案件'));
+        lab.appendChild(sel);
+        c.appendChild(lab);
+      }
       box.appendChild(c);
     });
     return box;
@@ -293,7 +398,13 @@ window.UI = (function () {
         Object.keys(p.roles).forEach(r => {
           const row = el('div', 'skrow');
           row.appendChild(el('span', 'sklabel wide', D.ROLES[r].label));
-          row.appendChild(el('span', 'est', 'Lv ' + window.SIM.estimateRange(p.roles[r])));
+          row.appendChild(el('span', 'est', 'Lv ' + window.SIM.estimateRange(p.roles[r], 4)));
+          sk.appendChild(row);
+        });
+        D.SKILLS.forEach(def => {
+          const row = el('div', 'skrow');
+          row.appendChild(el('span', 'sklabel', def.label));
+          row.appendChild(el('span', 'est', 'Lv ' + window.SIM.estimateRange(p.skills[def.key].lv, D.STAFF_SKILL_MAX)));
           sk.appendChild(row);
         });
       } else {

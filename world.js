@@ -11,7 +11,7 @@ window.WORLD = (function () {
   let avatars = {};
   let seats = [];            // { pos, rot }
   let breakSpots = [], lunchSpots = [];
-  let entrance = null;
+  let entrance = null, entranceOutside = null;
   let camAngle = 0.62, camZoom = 21, camDist = 34;
   let dragging = false, lastX = 0;
 
@@ -37,6 +37,9 @@ window.WORLD = (function () {
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    // 白飛び対策：明るさをトーンマッピングで丸める
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.0;
     container.appendChild(renderer.domElement);
 
     buildLights();
@@ -60,9 +63,9 @@ window.WORLD = (function () {
   }
 
   function buildLights() {
-    scene.add(new THREE.AmbientLight('#FFFFFF', 0.72));
-    scene.add(new THREE.HemisphereLight('#FFFFFF', '#C9D6D2', 0.45));
-    const key = new THREE.DirectionalLight('#FFFBF2', 0.5);
+    scene.add(new THREE.AmbientLight('#FFFFFF', 0.5));
+    scene.add(new THREE.HemisphereLight('#FFFFFF', '#C9D6D2', 0.32));
+    const key = new THREE.DirectionalLight('#FFFBF2', 0.42);
     key.position.set(13, 24, 10);
     key.castShadow = true;
     key.shadow.mapSize.set(2048, 2048);
@@ -73,7 +76,7 @@ window.WORLD = (function () {
     s.left = -13; s.right = 13; s.top = 13; s.bottom = -13;
     s.near = 1; s.far = 60;
     scene.add(key);
-    const fill = new THREE.DirectionalLight('#DCE8F5', 0.22);
+    const fill = new THREE.DirectionalLight('#DCE8F5', 0.16);
     fill.position.set(-10, 12, -8);
     scene.add(fill);
   }
@@ -122,6 +125,19 @@ window.WORLD = (function () {
     buildLounge();
 
     entrance = v(W / 2 - 1.4, 0, Dp / 2 - 1.2);
+    entranceOutside = v(W / 2 + 1.1, 0, Dp / 2 + 1.1);
+    buildDoor();
+  }
+
+  // 出入口の目印（枠だけの簡単な扉）。ここを通って外と行き来する
+  function buildDoor() {
+    const x = entrance.x, z = entrance.z + 0.55;
+    const g = new THREE.Group();
+    g.add(box(0.9, 0.06, 0.08, C.doorFrame, 0, 1.85, 0, false));
+    g.add(box(0.08, 1.9, 0.08, C.doorFrame, -0.45, 0.95, 0, false));
+    g.add(box(0.08, 1.9, 0.08, C.doorFrame, 0.45, 0.95, 0, false));
+    g.position.set(x, 0, z);
+    scene.add(g);
   }
 
   function buildIsland(isl) {
@@ -244,7 +260,10 @@ window.WORLD = (function () {
   function makeAvatar(person) {
     const g = new THREE.Group();
     const HEAD = 0.34;                       // 頭の半径。全高はこの約3倍
-    const shirt = person.kind === 'staff' ? C.shirtStaff : C.shirt;
+    const isCeo = person.kind === 'ceo';
+    const isStaff = person.kind === 'staff' || isCeo;
+    const shirt = isCeo ? C.shirtCeo : isStaff ? C.shirtStaff : C.shirt;
+    if (isCeo) g.scale.set(1.08, 1.08, 1.08);
 
     // 脚
     [-0.15, 0.15].forEach(dx => {
@@ -256,6 +275,12 @@ window.WORLD = (function () {
     const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.29, 0.25, 0.62, 12), lam(shirt));
     torso.position.y = 0.81; torso.castShadow = true;
     g.add(torso);
+    // ネクタイ（職員・社長は一目でわかるように）
+    if (isStaff) {
+      const tie = box(0.09, 0.5, 0.03, isCeo ? C.tieCeo : C.tieStaff, 0, 0.9, 0.245);
+      tie.castShadow = false;
+      g.add(tie);
+    }
     // 肩の丸み
     const sh = new THREE.Mesh(new THREE.SphereGeometry(0.29, 12, 8), lam(shirt));
     sh.position.y = 1.09; sh.scale.set(1, 0.55, 1); sh.castShadow = true;
@@ -289,6 +314,13 @@ window.WORLD = (function () {
     back.scale.set(1, 0.9, 0.7);
     g.add(back);
 
+    // 顔（簡単な目だけ）
+    [-0.12, 0.12].forEach(dx => {
+      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.04, 8, 6), lam(C.eye));
+      eye.position.set(dx, head.position.y - 0.02, HEAD * 1.02);
+      g.add(eye);
+    });
+
     scene.add(g);
     return {
       group: g, target: entrance.clone(), targetRot: 0,
@@ -299,7 +331,7 @@ window.WORLD = (function () {
   /* ---------- 状態の反映 ---------- */
   function sync(state) {
     if (!scene) return;
-    const people = state.users.concat(state.staff);
+    const people = state.users.concat(state.staff).concat(state.ceo ? [state.ceo] : []);
     const seen = {};
 
     people.forEach((p, i) => {
@@ -324,10 +356,10 @@ window.WORLD = (function () {
         case 'lunch':
           target = lunchSpots[i % lunchSpots.length]; break;
         case 'left':
-          target = entrance; break;
+          target = entranceOutside; break;
       }
 
-      if (visible && !a.spawned) { a.group.position.copy(entrance); a.spawned = true; }
+      if (visible && !a.spawned) { a.group.position.copy(entranceOutside); a.spawned = true; }
       a.group.visible = visible;
       a.target.copy(target);
       a.targetRot = rot;

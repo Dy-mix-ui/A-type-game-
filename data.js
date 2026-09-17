@@ -6,10 +6,11 @@ window.DATA = (function () {
 
   /* ---------- 時間 ---------- */
   const TIME = {
-    dayStart: 9 * 60,        // 社長の始業 09:00
-    dayEnd: 18 * 60,         // 社長の終業 18:00
+    dayStart: 9 * 60,        // 職員の始業 09:00
+    dayEnd: 18 * 60,         // 職員の終業 18:00
     userStart: 10 * 60,      // 利用者の始業 10:00
     userEnd: 15 * 60,        // 利用者の終業 15:00
+    ceoLeaveRange: [18 * 60, 24 * 60],  // 社長の退勤はこの範囲でランダム（残業）
     lunch: [12 * 60, 13 * 60],
     breaks: [[11 * 60, 11 * 60 + 10], [14 * 60, 14 * 60 + 10]],
     realSecPerGameMin: 0.8,  // 等速で 1ゲーム分 = 0.8秒（1日およそ7分）
@@ -26,12 +27,25 @@ window.DATA = (function () {
     { key: 'wp', label: 'WP' }
   ];
 
-  // レベルを上げるのに必要な経験値（Lv1→2 … Lv4→5）
-  const EXP_TO_NEXT = [0, 400, 1000, 2200, 4200, Infinity];
+  const SKILL_MAX = 10;            // 利用者のスキル上限（勉強でここまで伸ばせる）
+  const INTERVIEW_SKILL_CAP = 5;   // 面接（採用時点）で持ちうるスキルの上限。6以上は勉強でしか伸ばせない
+  const STAFF_SKILL_MAX = 5;       // 職員の得意分野（案件スキル）の上限。勉強では伸びない固定値
+
+  // レベルを上げるのに必要な経験値（Lv1→2 … Lv9→10）。Lv6以降は面接では絶対に届かない領域
+  const EXP_TO_NEXT = [0, 400, 1000, 2200, 4200, 6300, 9500, 14000, 21000, 31500, Infinity];
+
+  // 面接で出会う人のスキルレベルの出現比率（レア度）。添字0=Lv1 … 添字4=Lv5
+  // 高レベルほど出にくい。事務員のレベルや評価はこの構成には影響しない（見え方のみ estimateRange で変わる）
+  const SKILL_RARITY = {
+    userSpecialty: [46, 28, 15, 8, 3],   // 利用者の得意分野の初期レベル
+    staffCraft: [46, 28, 15, 8, 3],      // 職員の得意分野（案件スキル）
+    staffRole: [42, 30, 19, 9]           // 職員の役割レベル（1〜4）
+  };
 
   /* ---------- 職員の役割 ---------- */
+  // 職員は複数の役割を覚えていても、実際に発揮できるのは activeRole で選んだ1つだけ
   const ROLES = {
-    designer: { label: 'Webデザイナー', desc: '案件の制作に直接入る。品質を底上げする' },
+    designer: { label: 'Webデザイナー', desc: '案件の制作に直接入る。持っているスキルで品質と速度が変わる' },
     manager: { label: '案件割り振り', desc: '手が空いた利用者に自動で仕事を回す' },
     teacher: { label: '講師', desc: '勉強モードの利用者の習得速度を上げる' },
     clerk: { label: '事務員', desc: '備品・経理を回す。不足すると全体効率が落ちる' }
@@ -56,19 +70,32 @@ window.DATA = (function () {
 
   /* ---------- 案件 ---------- */
   // tier: 1=個人・小規模 2=中小企業 3=大企業
+  // need はスキルレベル10段階基準。tier3 は面接では届かない Lv6 以上を要求し、勉強への投資を促す
   const PROJECT_TEMPLATES = [
     { tier: 1, name: '個人サロンのLP', need: { html: 2, css: 2 }, effort: 1440, pay: 120000, days: 6 },
     { tier: 1, name: '飲食店のメニューページ', need: { html: 2, css: 1 }, effort: 1150, pay: 95000, days: 5 },
     { tier: 1, name: '既存サイトの文言修正', need: { html: 1 }, effort: 650, pay: 62000, days: 3 },
     { tier: 1, name: 'お問い合わせフォーム設置', need: { html: 2, php: 2 }, effort: 1520, pay: 145000, days: 6 },
-    { tier: 2, name: '工務店のコーポレートサイト', need: { html: 3, css: 3, wp: 2 }, effort: 5500, pay: 420000, days: 12 },
-    { tier: 2, name: '学習塾サイトのWP化', need: { html: 3, css: 2, wp: 3 }, effort: 6000, pay: 460000, days: 14 },
-    { tier: 2, name: '求人サイトの改修', need: { html: 3, css: 3, js: 2 }, effort: 5100, pay: 390000, days: 12 },
-    { tier: 2, name: 'ECサイトの商品ページ量産', need: { html: 2, css: 2, php: 2 }, effort: 6400, pay: 480000, days: 15 },
-    { tier: 3, name: '上場企業のブランドサイト', need: { html: 4, css: 4, js: 3 }, effort: 21000, pay: 1450000, days: 22 },
-    { tier: 3, name: '全国チェーンの店舗検索システム', need: { html: 4, css: 3, js: 4, php: 3 }, effort: 24000, pay: 1750000, days: 25 },
-    { tier: 3, name: '大学サイトのCMS移行', need: { html: 4, css: 3, wp: 4, php: 3 }, effort: 22500, pay: 1600000, days: 24 }
+    { tier: 2, name: '工務店のコーポレートサイト', need: { html: 4, css: 4, wp: 3 }, effort: 5500, pay: 420000, days: 12 },
+    { tier: 2, name: '学習塾サイトのWP化', need: { html: 4, css: 3, wp: 4 }, effort: 6000, pay: 460000, days: 14 },
+    { tier: 2, name: '求人サイトの改修', need: { html: 4, css: 4, js: 3 }, effort: 5100, pay: 390000, days: 12 },
+    { tier: 2, name: 'ECサイトの商品ページ量産', need: { html: 3, css: 3, php: 3 }, effort: 6400, pay: 480000, days: 15 },
+    { tier: 3, name: '上場企業のブランドサイト', need: { html: 7, css: 7, js: 6 }, effort: 21000, pay: 1450000, days: 22 },
+    { tier: 3, name: '全国チェーンの店舗検索システム', need: { html: 7, css: 6, js: 7, php: 6 }, effort: 24000, pay: 1750000, days: 25 },
+    { tier: 3, name: '大学サイトのCMS移行', need: { html: 7, css: 6, wp: 7, php: 6 }, effort: 22500, pay: 1600000, days: 24 }
   ];
+
+  /* ---------- 講師案件（外部からの研修・講座の依頼。講師役の職員だけが対応できる） ---------- */
+  const TEACHING_TEMPLATES = [
+    { name: '地域センターのパソコン教室', needRole: 1, effort: 800, pay: 70000, days: 5 },
+    { name: '中学校でのプログラミング体験授業', needRole: 2, effort: 1400, pay: 130000, days: 6 },
+    { name: '企業のIT新人研修', needRole: 3, effort: 2600, pay: 260000, days: 10 },
+    { name: '専門学校での集中講座', needRole: 4, effort: 4200, pay: 440000, days: 14 }
+  ];
+  const TEACHING_OFFER = {
+    perDayBase: 0.18, perDayRep: 0.35,  // 1日あたりの引き合い件数の基準（案件よりだいぶ少ない）
+    maxPending: 1
+  };
 
   /* 評価ランクごとの、届く案件の質と量 */
   const REPUTATION = {
@@ -163,20 +190,27 @@ window.DATA = (function () {
       partition: '#DCE4E8',
       shirt: '#EDEFF2',
       shirtStaff: '#C2D3E2',
+      shirtCeo: '#333B47',
+      tieStaff: '#5A7CA6',
+      tieCeo: '#B5872F',
       pants: '#5A6472',
       skin: '#F3CDA8',
+      eye: '#2B2F36',
       sofa: '#8FA9C4',
       plant: '#5FA06B',
       pot: '#C98A5B',
       glass: '#DCEEF8',
-      monitor: '#3A424C'
+      monitor: '#3A424C',
+      doorFrame: '#B08A5C'
     }
   };
 
 
   return {
-    TIME, SKILLS, EXP_TO_NEXT, ROLES, MONEY, STANDARD,
-    PROJECT_TEMPLATES, REPUTATION, WORK, STUDY, MORALE, QUALITY, TRANSITION,
+    TIME, SKILLS, SKILL_MAX, INTERVIEW_SKILL_CAP, STAFF_SKILL_MAX, SKILL_RARITY,
+    EXP_TO_NEXT, ROLES, MONEY, STANDARD,
+    PROJECT_TEMPLATES, TEACHING_TEMPLATES, TEACHING_OFFER,
+    REPUTATION, WORK, STUDY, MORALE, QUALITY, TRANSITION,
     SURNAMES, GIVEN, OFFICE
   };
 })();

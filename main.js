@@ -56,8 +56,6 @@
     document.querySelectorAll('#speeds button').forEach(b => {
       b.onclick = () => { SIM.state.speed = +b.dataset.sp; SIM.state.paused = false; UI.renderTop(); };
     });
-    $('btnPause').onclick = () => { SIM.state.paused = !SIM.state.paused; UI.renderTop(); };
-    $('btnEndDay').onclick = () => { SIM.endDay(); SIM.save(); dirty = true; };
     $('btnSave').onclick = () => { toast(SIM.save() ? '保存しました' : '保存できませんでした'); };
     $('btnNew').onclick = () => {
       if (!confirm('最初からやり直しますか？ 現在の記録は消えます。')) return;
@@ -91,12 +89,11 @@
         let guard = 0;
         while (acc >= per && guard < 120) {
           acc -= per; guard++;
-          if (s.minute < D.TIME.dayEnd) SIM.minuteTick();
-          else { s.paused = true; break; }
+          const closeAt = s.ceoLeaveAt || D.TIME.dayEnd;  // 社長が退勤したら、その日は自動的に終える
+          if (s.minute < closeAt) SIM.minuteTick();
+          else { SIM.endDay(); SIM.save(); }
         }
       }
-
-      $('btnEndDay').hidden = s.minute < D.TIME.userEnd;
 
       if (has3D) { WORLD.sync(s); WORLD.render(dt); }
       if (dirty) { UI.render(); dirty = false; }
@@ -117,6 +114,11 @@
     toastTimer = setTimeout(() => { t.hidden = true; }, 1800);
   }
 
+  /* ---------- 自動保存 ---------- */
+  setInterval(() => { try { SIM.save(); } catch (e) { } }, 20000);
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) { try { SIM.save(); } catch (e) { } }
+  });
   window.addEventListener('beforeunload', () => { try { SIM.save(); } catch (e) { } });
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
