@@ -122,7 +122,7 @@ window.SIM = (function () {
       );
       u.present = Math.random() < p;
       u.state = u.present ? 'home' : 'absent';
-      u.arriveAt = D.TIME.userStart - rint(0, 25);
+      u.arriveAt = D.TIME.userStart - rint(5, 40);
       if (u.present) { u.attendDays++; S.monthlyWelfareDays++; }
     });
     S.staff.forEach(s => {
