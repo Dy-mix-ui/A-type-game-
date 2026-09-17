@@ -174,7 +174,8 @@ window.WORLD = (function () {
   function makeChair(x, z, rot) {
     const g = new THREE.Group();
     g.add(box(0.52, 0.08, 0.52, C.chair, 0, 0.44, 0));
-    g.add(box(0.52, 0.5, 0.08, C.chair, 0, 0.72, 0.24));
+    // 背もたれは机と反対側（座った人の背中側）に来るように
+    g.add(box(0.52, 0.5, 0.08, C.chair, 0, 0.72, -0.24));
     g.add(box(0.07, 0.44, 0.07, C.deskLeg, 0, 0.22, 0));
     g.add(box(0.42, 0.06, 0.42, C.deskLeg, 0, 0.03, 0));
     g.position.set(x, 0, z);
@@ -195,7 +196,7 @@ window.WORLD = (function () {
     return g;
   }
 
-  // 社長専用デスク。他の島より少し大きく、1人掛けにしてある
+  // 社長専用デスク。奥の壁の中央に、部屋全体を見渡せる向きで置く
   function buildCeoDesk() {
     const x = O.ceoDesk.x, z = O.ceoDesk.z;
     const tableW = 1.4, tableD = 0.9;
@@ -204,9 +205,10 @@ window.WORLD = (function () {
     [-tableW / 2 + 0.22, tableD / 2 - 0.18], [tableW / 2 - 0.22, tableD / 2 - 0.18]].forEach(p => {
       scene.add(box(0.09, 0.7, 0.09, C.deskLeg, x + p[0], 0.35, z + p[1]));
     });
-    const seatZ = z + 1.1, rot = Math.PI;
+    // 壁を背にして部屋の中央（+z側）を向く
+    const seatZ = z - 1.1, rot = 0;
     scene.add(makeChair(x, seatZ, rot));
-    scene.add(makeMonitor(x, z + 0.35, rot));
+    scene.add(makeMonitor(x, z - 0.42, rot));
     seats.push({ pos: v(x, 0, seatZ), rot });
   }
 

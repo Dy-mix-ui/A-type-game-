@@ -274,6 +274,20 @@ window.SIM = (function () {
     return clamp(f / keys.length, 0.15, 2.2);
   }
 
+  // 経験値を加算し、レベルアップも処理する共通処理（勉強・案件どちらからも使う）
+  function gainSkillExp(u, key, amount) {
+    const sk = u.skills[key];
+    if (!sk || sk.lv >= D.SKILL_MAX) return;
+    sk.exp += amount;
+    const need = D.EXP_TO_NEXT[sk.lv];
+    if (sk.exp >= need) {
+      sk.exp = 0; sk.lv++;
+      const label = D.SKILLS.find(s => s.key === key).label;
+      log(`${u.name} さんの ${label} が Lv${sk.lv} になりました。`, 'good');
+      emit('levelup', u);
+    }
+  }
+
   function progressWork() {
     const cf = clerkFactor();
 
@@ -294,6 +308,8 @@ window.SIM = (function () {
       p.qualitySum += sf;
       p.qualityCount++;
       p._today += out;
+      // 案件で使ったスキルは、実地でも少しずつ伸びる（勉強よりゆっくり）
+      Object.keys(p.need).forEach(k => gainSkillExp(u, k, D.STUDY.expPerMin * D.WORK.onJobExpRate));
       // 期限が迫った案件はやる気を削る
       const left = p.dueDay - S.day;
       if (left <= 2) u.morale = clamp(u.morale - D.MORALE.overworkPain / 60, 0, 100);
@@ -339,16 +355,7 @@ window.SIM = (function () {
       if (u.state !== 'desk' || u.mode !== 'study') return;
       let mult = 1;
       if (capacity > 0) { mult += D.STUDY.teacherFlatBonus; capacity--; }
-      const sk = u.skills[u.studyTarget];
-      if (sk.lv >= D.SKILL_MAX) return;
-      sk.exp += D.STUDY.expPerMin * mult;
-      const need = D.EXP_TO_NEXT[sk.lv];
-      if (sk.exp >= need) {
-        sk.exp = 0; sk.lv++;
-        const label = D.SKILLS.find(s => s.key === u.studyTarget).label;
-        log(`${u.name} さんの ${label} が Lv${sk.lv} になりました。`, 'good');
-        emit('levelup', u);
-      }
+      gainSkillExp(u, u.studyTarget, D.STUDY.expPerMin * mult);
       u.morale = clamp(u.morale + D.MORALE.studyJoy / 60, 0, 100);
     });
   }

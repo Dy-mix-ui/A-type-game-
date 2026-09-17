@@ -121,7 +121,8 @@ window.DATA = (function () {
     levelBonus: 0.22,            // 必要レベルを1超えるごとの加算
     levelPenalty: 0.22,          // 必要レベルに1足りないごとの減算
     moraleWeight: 0.5,           // やる気が生産量に与える影響の強さ
-    clerkShortagePenalty: 0.18   // 事務員不足1人あたりの全体効率低下
+    clerkShortagePenalty: 0.18,  // 事務員不足1人あたりの全体効率低下
+    onJobExpRate: 0.35           // 案件で使ったスキルの実地上達率（勉強の半分未満）
   };
 
   /* ---------- 勉強 ---------- */
@@ -186,7 +187,7 @@ window.DATA = (function () {
     islands: OFFICE_ISLANDS,
     seatZones: OFFICE_SEAT_ZONES,
     ceoSeatIndex: OFFICE_CEO_SEAT_INDEX,
-    ceoDesk: { x: -8.0, z: -6.0 },
+    ceoDesk: { x: 0, z: -5.3 },  // 奥の壁の中央。部屋全体を見渡せる位置
     seatSpacing: 1.6,
     room: { w: 18, d: 14, loungeFrom: 2.6 },
     hairColors: ['#2B2018', '#6B4A2F', '#C9A227', '#8B3A3A', '#3A5A8B',
