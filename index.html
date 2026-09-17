@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="A型事業所">
+<meta name="theme-color" content="#14171C">
+<title>A型事業所運営 — Webの現場</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="app">
+
+  <div id="stage">
+    <div id="hud">
+      <div class="hud"><span>日付</span><b id="hudDay">—</b></div>
+      <div class="hud"><span>時刻</span><b id="hudTime" class="num">--:--</b></div>
+      <div class="hud"><span>出勤</span><b id="hudPeople">0 / 0</b></div>
+      <div class="hud"><span>給付費</span><b id="hudWelfare" class="num">¥0</b></div>
+      <div class="hud"><span>生産活動</span><b id="hudBusiness" class="num">¥0</b></div>
+      <div class="hud" id="repWrap">
+        <div style="display:flex;gap:6px;align-items:baseline">
+          <span>評価</span><b id="hudRep">0</b>
+        </div>
+        <div id="repBar"><i id="repFill"></i></div>
+      </div>
+    </div>
+
+    <div id="controls">
+      <button id="btnNew" title="最初から">新規</button>
+      <button id="btnSave">保存</button>
+      <button id="btnEndDay" class="accent" hidden>今日を終える</button>
+      <button id="btnPause">▶</button>
+      <div id="speeds">
+        <button data-sp="1">1x</button>
+        <button data-sp="2">2x</button>
+        <button data-sp="4">4x</button>
+        <button data-sp="8">8x</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="panel">
+    <div id="tabs">
+      <button data-tab="offers">引き合い<span class="badge"></span></button>
+      <button data-tab="projects">進行中<span class="badge"></span></button>
+      <button data-tab="users">利用者</button>
+      <button data-tab="staff">職員</button>
+      <button data-tab="hire">採用<span class="badge"></span></button>
+      <button data-tab="books">経営</button>
+    </div>
+    <div id="panelBody"></div>
+  </div>
+
+</div>
+
+<div id="modal" hidden></div>
+<div id="toast" hidden></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="data.js"></script>
+<script src="sim.js"></script>
+<script src="world.js"></script>
+<script src="ui.js"></script>
+<script src="main.js"></script>
+</body>
+</html>
