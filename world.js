@@ -118,8 +118,11 @@ window.WORLD = (function () {
       scene.add(box(0.14, 1.25, 2.2, C.partition, LF - 0.3, 0.62, -5 + i * 2.6));
     }
 
-    // デスクの島
+    // デスクの島（利用者席・職員席）
     O.islands.forEach(isl => buildIsland(isl));
+
+    // 社長専用デスク（島とは別に、少し離れた場所に1つだけ）
+    buildCeoDesk();
 
     // ラウンジ
     buildLounge();
@@ -190,6 +193,21 @@ window.WORLD = (function () {
     g.add(box(0.3, 0.03, 0.18, C.monitor, 0, 0.75, 0));
     g.position.set(x, 0, z);
     return g;
+  }
+
+  // 社長専用デスク。他の島より少し大きく、1人掛けにしてある
+  function buildCeoDesk() {
+    const x = O.ceoDesk.x, z = O.ceoDesk.z;
+    const tableW = 1.4, tableD = 0.9;
+    scene.add(box(tableW, 0.09, tableD, C.deskTop, x, 0.73, z));
+    [[-tableW / 2 + 0.22, -tableD / 2 + 0.18], [tableW / 2 - 0.22, -tableD / 2 + 0.18],
+    [-tableW / 2 + 0.22, tableD / 2 - 0.18], [tableW / 2 - 0.22, tableD / 2 - 0.18]].forEach(p => {
+      scene.add(box(0.09, 0.7, 0.09, C.deskLeg, x + p[0], 0.35, z + p[1]));
+    });
+    const seatZ = z + 1.1, rot = Math.PI;
+    scene.add(makeChair(x, seatZ, rot));
+    scene.add(makeMonitor(x, z + 0.35, rot));
+    seats.push({ pos: v(x, 0, seatZ), rot });
   }
 
   function buildLounge() {
@@ -356,7 +374,10 @@ window.WORLD = (function () {
         case 'lunch':
           target = lunchSpots[i % lunchSpots.length]; break;
         case 'left':
-          target = entranceOutside; break;
+          target = entranceOutside;
+          // 扉の外まで出たら、その日はもう見えなくする
+          if (a.group.position.distanceTo(entranceOutside) < 0.2) visible = false;
+          break;
       }
 
       if (visible && !a.spawned) { a.group.position.copy(entranceOutside); a.spawned = true; }

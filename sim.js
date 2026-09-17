@@ -47,21 +47,18 @@ window.SIM = (function () {
     return sk;
   }
 
-  // 職員の得意分野（案件で発揮する技術スキル）。勉強では伸びない固定値
+  // 職員の得意分野（案件で発揮する技術スキル）。最大2つまで、勉強では伸びない固定値
   function randomStaffSkills() {
     const sk = emptySkills(1);
-    const n = rint(1, 2);
+    const n = rint(0, 2);
     const keys = D.SKILLS.map(s => s.key).sort(() => Math.random() - 0.5);
     for (let i = 0; i < n; i++) sk[keys[i]].lv = weightedLevel(D.SKILL_RARITY.staffCraft);
     return sk;
   }
 
-  function randomStaffRoles() {
-    const keys = Object.keys(D.ROLES).sort(() => Math.random() - 0.5);
-    const n = rint(1, 2);
-    const out = {};
-    for (let i = 0; i < n; i++) out[keys[i]] = weightedLevel(D.SKILL_RARITY.staffRole);
-    return out;
+  // 職員の役割は4つのうち1つだけ。ランダムに決まり、役割自体にレベルはない
+  function randomStaffRole() {
+    return pick(Object.keys(D.ROLES));
   }
 
   /* ---------- 生成 ---------- */
@@ -74,6 +71,7 @@ window.SIM = (function () {
       mode: 'work',              // 'work' | 'study'
       studyTarget: 'html',
       assigned: null,            // 案件ID
+      extendedHours: false,      // 面談で勤務時間の延長に応じたか
       present: false,            // 今日出勤しているか
       state: 'home',             // home / commute / desk / break / lunch / left
       attendDays: 0,
@@ -84,12 +82,10 @@ window.SIM = (function () {
 
   function newStaff(opts) {
     opts = opts || {};
-    const roles = opts.roles || randomStaffRoles();
     return {
       id: nextId(), kind: 'staff', name: opts.name || makeName(),
-      roles,
+      role: opts.role || randomStaffRole(),
       skills: opts.skills || randomStaffSkills(),
-      activeRole: opts.activeRole || Object.keys(roles)[0],
       assigned: null,
       present: false, state: 'home', desk: null,
       joinDay: S ? S.day : 0
@@ -121,8 +117,8 @@ window.SIM = (function () {
       events: []
     };
     for (let i = 0; i < 4; i++) S.users.push(newUser());
-    S.staff.push(newStaff({ roles: { manager: 3, clerk: 2 }, activeRole: 'manager' }));
-    S.staff.push(newStaff({ roles: { teacher: 3 }, activeRole: 'teacher' }));
+    S.staff.push(newStaff({ role: 'manager' }));
+    S.staff.push(newStaff({ role: 'teacher' }));
     S.ceo = newCeo();
     assignDesks();
     startDay();
@@ -131,9 +127,15 @@ window.SIM = (function () {
   }
 
   function assignDesks() {
-    const total = D.OFFICE.islands.reduce((a, i) => a + i.seatsPerSide * 2, 0);
-    const all = S.users.concat(S.staff).concat(S.ceo ? [S.ceo] : []);
-    all.forEach((p, i) => { p.desk = i < total ? i : null; });
+    const zones = D.OFFICE.seatZones;
+    const userSeats = [], staffSeats = [];
+    zones.forEach((z, i) => {
+      if (z === 'user') userSeats.push(i);
+      else if (z === 'staff') staffSeats.push(i);
+    });
+    S.users.forEach((u, i) => { u.desk = i < userSeats.length ? userSeats[i] : null; });
+    S.staff.forEach((s, i) => { s.desk = i < staffSeats.length ? staffSeats[i] : null; });
+    if (S.ceo) S.ceo.desk = D.OFFICE.ceoSeatIndex;
   }
 
   function log(text, tone) {
@@ -212,9 +214,10 @@ window.SIM = (function () {
     emit('tick');
   }
 
+  // 職員の勤務時間全体をカバーする外側の窓。個々の利用者の終業は updatePresence で判定する
   function isWorkingTime() {
     const m = S.minute, T = D.TIME;
-    if (m < T.userStart || m >= T.userEnd) return false;
+    if (m < T.userStart || m >= T.dayEnd) return false;
     if (m >= T.lunch[0] && m < T.lunch[1]) return false;
     for (const b of T.breaks) if (m >= b[0] && m < b[1]) return false;
     return true;
@@ -224,9 +227,10 @@ window.SIM = (function () {
     const m = S.minute, T = D.TIME;
     S.users.forEach(u => {
       if (!u.present) return;
+      const end = u.extendedHours ? T.userEnd + T.extendMinutes : T.userEnd;
       if (m < u.arriveAt) u.state = 'home';
       else if (m < u.arriveAt + 8) u.state = 'commute';
-      else if (m >= T.userEnd) u.state = 'left';
+      else if (m >= end) u.state = 'left';
       else if (m >= T.lunch[0] && m < T.lunch[1]) u.state = 'lunch';
       else if (T.breaks.some(b => m >= b[0] && m < b[1])) u.state = 'break';
       else u.state = 'desk';
@@ -252,21 +256,18 @@ window.SIM = (function () {
   /* ---------- 効率の補正 ---------- */
   function clerkFactor() {
     const need = Math.ceil(S.users.length / 6);
-    const have = S.staff.filter(s => s.present && s.activeRole === 'clerk' && s.roles.clerk).length;
+    const have = S.staff.filter(s => s.present && s.role === 'clerk').length;
     const short = Math.max(0, need - have);
     return clamp(1 - short * D.WORK.clerkShortagePenalty, 0.4, 1);
   }
 
-  // need は技術スキル（html等）か役割（teacher等）のどちらかのキーを持つ。両対応にしておく
+  // need は技術スキル（html等）のキーを持つ。空なら誰でも同じように対応できる（講師案件など）
   function skillFactor(person, need) {
     const keys = Object.keys(need);
     if (!keys.length) return 1;
     let f = 0;
     keys.forEach(k => {
-      let lv;
-      if (person.skills && person.skills[k]) lv = person.skills[k].lv;
-      else if (person.roles && person.roles[k] != null) lv = person.roles[k];
-      else lv = 3;
+      const lv = person.skills && person.skills[k] ? person.skills[k].lv : 3;
       const d = lv - need[k];
       f += 1 + (d >= 0 ? d * D.WORK.levelBonus : d * D.WORK.levelPenalty);
     });
@@ -276,8 +277,8 @@ window.SIM = (function () {
   function progressWork() {
     const cf = clerkFactor();
 
-    // 自動割り振り（案件割り振りを今の役割にしている職員がいる場合）
-    const mgr = S.staff.find(s => s.present && s.state === 'desk' && s.activeRole === 'manager' && s.roles.manager);
+    // 自動割り振り（案件割り振り役の職員がいる場合）
+    const mgr = S.staff.find(s => s.present && s.state === 'desk' && s.role === 'manager');
     if (mgr) autoAssign();
 
     S.projects.forEach(p => { p._today = 0; });
@@ -296,32 +297,22 @@ window.SIM = (function () {
       // 期限が迫った案件はやる気を削る
       const left = p.dueDay - S.day;
       if (left <= 2) u.morale = clamp(u.morale - D.MORALE.overworkPain / 60, 0, 100);
+      // 勤務時間を延長してもらっている分は、やる気の消耗も早い
+      if (u.extendedHours && S.minute >= D.TIME.userEnd) {
+        u.morale = clamp(u.morale - D.MORALE.extendedPain / 60, 0, 100);
+      }
     });
 
-    // 職員デザイナーの寄与（自分で選んだ案件に、持っているスキルで参加する）
+    // 職員の案件参加（デザイナーは通常案件のみ、講師は通常案件・講師案件どちらも受けられる）
     S.staff.forEach(s => {
-      if (s.state !== 'desk' || s.activeRole !== 'designer' || !s.roles.designer) return;
+      if (s.state !== 'desk' || (s.role !== 'designer' && s.role !== 'teacher')) return;
       const p = S.projects.find(x => x.id === s.assigned);
       if (!p) return;
-      const sf = skillFactor(s, p.need);
-      const roleMult = 0.6 + s.roles.designer * 0.2;
-      const out = D.WORK.designerOutputPerMin * sf * roleMult * cf;
+      if (p.kind === 'teaching' && s.role !== 'teacher') return;
+      const sf = skillFactor(s, p.need);  // 講師案件は need が空なので常に sf=1
+      const out = D.WORK.designerOutputPerMin * sf * cf;
       p.progress += out;
-      p.qualitySum += sf * roleMult;
-      p.qualityCount++;
-      p._today = (p._today || 0) + out;
-    });
-
-    // 講師案件（外部の研修などの請負。担当している間は社内の勉強は見られない）
-    S.staff.forEach(s => {
-      if (s.state !== 'desk' || s.activeRole !== 'teacher' || !s.roles.teacher) return;
-      const p = S.projects.find(x => x.id === s.assigned && x.kind === 'teaching');
-      if (!p) return;
-      const sf = skillFactor(s, p.need);
-      const roleMult = 0.6 + s.roles.teacher * 0.2;
-      const out = D.WORK.designerOutputPerMin * sf * roleMult * cf;
-      p.progress += out;
-      p.qualitySum += sf * roleMult;
+      p.qualitySum += sf;
       p.qualityCount++;
       p._today = (p._today || 0) + out;
     });
@@ -341,16 +332,13 @@ window.SIM = (function () {
 
   function progressStudy() {
     // 講師案件を請け負っている間は、社内の勉強は見られない
-    const teachers = S.staff.filter(s => s.present && s.state === 'desk' && s.activeRole === 'teacher' && s.roles.teacher && !s.assigned);
+    const teachers = S.staff.filter(s => s.present && s.state === 'desk' && s.role === 'teacher' && !s.assigned);
     let capacity = teachers.reduce((a, t) => a + D.STUDY.teacherCapacity, 0);
-    const bonusPer = teachers.length
-      ? teachers.reduce((a, t) => a + t.roles.teacher, 0) / teachers.length
-      : 0;
 
     S.users.forEach(u => {
       if (u.state !== 'desk' || u.mode !== 'study') return;
       let mult = 1;
-      if (capacity > 0) { mult += bonusPer * D.STUDY.teacherBonusPerLevel; capacity--; }
+      if (capacity > 0) { mult += D.STUDY.teacherFlatBonus; capacity--; }
       const sk = u.skills[u.studyTarget];
       if (sk.lv >= D.SKILL_MAX) return;
       sk.exp += D.STUDY.expPerMin * mult;
@@ -462,7 +450,7 @@ window.SIM = (function () {
     const variance = rnd(0.9, 1.1);
     S.offers.push({
       id: nextId(), kind: 'teaching', name: t.name, tier: 0,
-      need: { teacher: t.needRole },
+      need: {},
       effort: Math.round(t.effort * variance),
       pay: Math.round(t.pay * variance / 1000) * 1000,
       days: t.days + rint(-1, 2),
@@ -498,11 +486,11 @@ window.SIM = (function () {
     emit('applicant');
   }
 
-  // 面接では能力が正確には分からない。事務員のレベルが高いほど幅が狭まる
+  // 面接では能力が正確には分からない。事務員がいるほど幅が狭まる
   function estimateRange(lv, max) {
     max = max || D.INTERVIEW_SKILL_CAP;
-    const clerkLv = Math.max(0, ...S.staff.filter(s => s.roles.clerk).map(s => s.roles.clerk));
-    const span = clerkLv >= 4 ? 0 : 1;
+    const hasClerk = S.staff.some(s => s.role === 'clerk');
+    const span = hasClerk ? 0 : 1;
     const lo = clamp(lv - span, 1, max), hi = clamp(lv + span, 1, max);
     return lo === hi ? String(lo) : `${lo}〜${hi}`;
   }
@@ -560,18 +548,27 @@ window.SIM = (function () {
     emit('change');
   }
 
-  /* ---------- 1日の締め ---------- */
-  function endDay() {
-    // 利用者の賃金（生産活動収入から支払う）
+  // 利用者1人の実働分数（延長している場合はその分を加算）
+  function workMinutesFor(u) {
     const T = D.TIME;
+    const end = u.extendedHours ? T.userEnd + T.extendMinutes : T.userEnd;
     let workMin = 0;
-    for (let m = T.userStart; m < T.userEnd; m++) {
+    for (let m = T.userStart; m < end; m++) {
       if (m >= T.lunch[0] && m < T.lunch[1]) continue;
       if (T.breaks.some(b => m >= b[0] && m < b[1])) continue;
       workMin++;
     }
-    const daily = Math.round(D.MONEY.minWageHour * workMin / 60);
-    const paid = S.users.filter(u => u.present).length * daily;
+    return workMin;
+  }
+
+  /* ---------- 1日の締め ---------- */
+  function endDay() {
+    // 利用者の賃金（生産活動収入から支払う）
+    let paid = 0;
+    S.users.forEach(u => {
+      if (!u.present) return;
+      paid += Math.round(D.MONEY.minWageHour * workMinutesFor(u) / 60);
+    });
     S.fundBusiness -= paid;
     S.monthlyWage += paid;
 
@@ -635,17 +632,40 @@ window.SIM = (function () {
     const u = S.users.find(x => x.id === userId);
     if (u) { u.assigned = projectId; if (projectId) u.mode = 'work'; emit('change'); }
   }
-  function setActiveRole(staffId, role) {
-    const s = S.staff.find(x => x.id === staffId);
-    if (s && s.roles[role]) {
-      s.activeRole = role;
-      if (role !== 'designer') s.assigned = null;
-      emit('change');
-    }
-  }
   function assignStaff(staffId, projectId) {
     const s = S.staff.find(x => x.id === staffId);
     if (s) { s.assigned = projectId || null; emit('change'); }
+  }
+  function setRole(staffId, role) {
+    const s = S.staff.find(x => x.id === staffId);
+    if (s && D.ROLES[role]) {
+      s.role = role;
+      if (role !== 'designer' && role !== 'teacher') s.assigned = null;
+      emit('change');
+    }
+  }
+  function setExtendedHours(userId, on) {
+    const u = S.users.find(x => x.id === userId);
+    if (u) { u.extendedHours = !!on; emit('change'); }
+  }
+
+  /* ---------- 面談 ---------- */
+  function openMeeting(userId) {
+    if (!S.users.some(u => u.id === userId)) return;
+    S.events.unshift({ id: nextId(), type: 'meeting', userId });
+    emit('event');
+  }
+  function proposeTransition(userId) {
+    const u = S.users.find(x => x.id === userId);
+    if (!u) return;
+    const avg = D.SKILLS.reduce((a, s) => a + u.skills[s.key].lv, 0) / D.SKILLS.length;
+    if (avg < D.TRANSITION.avgSkillRequired || u.morale < D.TRANSITION.moraleRequired) return;
+    S.users = S.users.filter(x => x.id !== u.id);
+    S.reputation = clamp(S.reputation + D.TRANSITION.repGain, 0, 100);
+    S.users.forEach(o => { o.morale = clamp(o.morale + D.TRANSITION.moraleGainOthers, 0, 100); });
+    assignDesks();
+    log(`${u.name} さんが面談を経て一般就労へ移行しました。事業所の評価が上がりました。`, 'good');
+    emit('change');
   }
 
   function yen(n) {
@@ -673,7 +693,8 @@ window.SIM = (function () {
     get state() { return S; },
     on, newGame, minuteTick, endDay, startDay,
     acceptOffer, declineOffer, hire, reject, resolveTransition,
-    setMode, setStudyTarget, assign, setActiveRole, assignStaff, estimateRange,
+    setMode, setStudyTarget, assign, assignStaff, setRole, estimateRange,
+    setExtendedHours, openMeeting, proposeTransition,
     isWorkingTime, yen, log, skillFactor,
     save, load, clearSave,
     dismissEvent: id => { S.events = S.events.filter(e => e.id !== id); emit('change'); }

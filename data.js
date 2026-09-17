@@ -9,7 +9,8 @@ window.DATA = (function () {
     dayStart: 9 * 60,        // 職員の始業 09:00
     dayEnd: 18 * 60,         // 職員の終業 18:00
     userStart: 10 * 60,      // 利用者の始業 10:00
-    userEnd: 15 * 60,        // 利用者の終業 15:00
+    userEnd: 15 * 60,        // 利用者の終業 15:00（面談で延長を相談できる）
+    extendMinutes: 60,       // 面談で延長できる時間
     ceoLeaveRange: [18 * 60, 24 * 60],  // 社長の退勤はこの範囲でランダム（残業）
     lunch: [12 * 60, 13 * 60],
     breaks: [[11 * 60, 11 * 60 + 10], [14 * 60, 14 * 60 + 10]],
@@ -32,18 +33,18 @@ window.DATA = (function () {
   const STAFF_SKILL_MAX = 5;       // 職員の得意分野（案件スキル）の上限。勉強では伸びない固定値
 
   // レベルを上げるのに必要な経験値（Lv1→2 … Lv9→10）。Lv6以降は面接では絶対に届かない領域
-  const EXP_TO_NEXT = [0, 400, 1000, 2200, 4200, 6300, 9500, 14000, 21000, 31500, Infinity];
+  const EXP_TO_NEXT = [0, 640, 1600, 3500, 6700, 10000, 15000, 22000, 33000, 50000, Infinity];
 
   // 面接で出会う人のスキルレベルの出現比率（レア度）。添字0=Lv1 … 添字4=Lv5
-  // 高レベルほど出にくい。事務員のレベルや評価はこの構成には影響しない（見え方のみ estimateRange で変わる）
+  // 高レベルほど出にくい
   const SKILL_RARITY = {
     userSpecialty: [46, 28, 15, 8, 3],   // 利用者の得意分野の初期レベル
-    staffCraft: [46, 28, 15, 8, 3],      // 職員の得意分野（案件スキル）
-    staffRole: [42, 30, 19, 9]           // 職員の役割レベル（1〜4）
+    staffCraft: [46, 28, 15, 8, 3]       // 職員の得意分野（案件スキル）
   };
 
   /* ---------- 職員の役割 ---------- */
-  // 職員は複数の役割を覚えていても、実際に発揮できるのは activeRole で選んだ1つだけ
+  // 職員が担うのはこの4つのうち1つだけ。ランダムに決まり、役割自体にレベルはない
+  // （デザイナーの実力は下の技術スキルで決まる）
   const ROLES = {
     designer: { label: 'Webデザイナー', desc: '案件の制作に直接入る。持っているスキルで品質と速度が変わる' },
     manager: { label: '案件割り振り', desc: '手が空いた利用者に自動で仕事を回す' },
@@ -85,12 +86,12 @@ window.DATA = (function () {
     { tier: 3, name: '大学サイトのCMS移行', need: { html: 7, css: 6, wp: 7, php: 6 }, effort: 22500, pay: 1600000, days: 24 }
   ];
 
-  /* ---------- 講師案件（外部からの研修・講座の依頼。講師役の職員だけが対応できる） ---------- */
+  /* ---------- 講師案件（外部からの研修・講座の依頼。講師役の職員なら誰でも対応できる） ---------- */
   const TEACHING_TEMPLATES = [
-    { name: '地域センターのパソコン教室', needRole: 1, effort: 800, pay: 70000, days: 5 },
-    { name: '中学校でのプログラミング体験授業', needRole: 2, effort: 1400, pay: 130000, days: 6 },
-    { name: '企業のIT新人研修', needRole: 3, effort: 2600, pay: 260000, days: 10 },
-    { name: '専門学校での集中講座', needRole: 4, effort: 4200, pay: 440000, days: 14 }
+    { name: '地域センターのパソコン教室', effort: 800, pay: 70000, days: 5 },
+    { name: '中学校でのプログラミング体験授業', effort: 1400, pay: 130000, days: 6 },
+    { name: '企業のIT新人研修', effort: 2600, pay: 260000, days: 10 },
+    { name: '専門学校での集中講座', effort: 4200, pay: 440000, days: 14 }
   ];
   const TEACHING_OFFER = {
     perDayBase: 0.18, perDayRep: 0.35,  // 1日あたりの引き合い件数の基準（案件よりだいぶ少ない）
@@ -126,8 +127,8 @@ window.DATA = (function () {
   /* ---------- 勉強 ---------- */
   const STUDY = {
     expPerMin: 1.0,
-    teacherBonusPerLevel: 0.18,  // 講師レベル1あたりの倍率上乗せ
-    teacherCapacity: 4           // 講師1人が同時に見られる人数
+    teacherFlatBonus: 0.35,  // 講師が1人いるだけで得られる倍率上乗せ（役割にレベルはない）
+    teacherCapacity: 4       // 講師1人が同時に見られる人数
   };
 
   /* ---------- やる気・出勤 ---------- */
@@ -139,7 +140,8 @@ window.DATA = (function () {
     overworkPain: 0.05,          // 期限が迫った案件に入るとやる気が下がる
     deliverJoy: 5.0,             // 納品成功時の上昇
     idlePain: 0.06,              // 手持ち無沙汰な時間の下降
-    dailyRecover: 0.8            // 1日休んだぶんの回復
+    dailyRecover: 0.8,           // 1日休んだぶんの回復
+    extendedPain: 0.09           // 勤務時間の延長中、延長分の1分あたりのやる気消耗
   };
 
   /* ---------- 評価 ---------- */
@@ -168,12 +170,23 @@ window.DATA = (function () {
 
   /* ---------- 3Dオフィス ---------- */
   // 島型のデスク。seatsPerSide の両側に座るので、1島あたり seatsPerSide×2 席
+  // zone で利用者席と職員席を分ける。社長は島とは別に専用デスクを持つ
+  const OFFICE_ISLANDS = [
+    { x: -5.4, z: -3.3, seatsPerSide: 3, zone: 'user' },
+    { x: -5.4, z: 1.3, seatsPerSide: 3, zone: 'user' },
+    { x: -0.2, z: -3.3, seatsPerSide: 2, zone: 'staff' }
+  ];
+  // 島の席とは別インデックスで社長の席を1つ追加する（sim.js と world.js で共有する並び）
+  const OFFICE_SEAT_ZONES = [];
+  OFFICE_ISLANDS.forEach(isl => { for (let i = 0; i < isl.seatsPerSide * 2; i++) OFFICE_SEAT_ZONES.push(isl.zone); });
+  const OFFICE_CEO_SEAT_INDEX = OFFICE_SEAT_ZONES.length;
+  OFFICE_SEAT_ZONES.push('ceo');
+
   const OFFICE = {
-    islands: [
-      { x: -5.4, z: -3.3, seatsPerSide: 3 },
-      { x: -5.4, z: 1.3, seatsPerSide: 3 },
-      { x: -0.2, z: -3.3, seatsPerSide: 2 }
-    ],
+    islands: OFFICE_ISLANDS,
+    seatZones: OFFICE_SEAT_ZONES,
+    ceoSeatIndex: OFFICE_CEO_SEAT_INDEX,
+    ceoDesk: { x: -8.0, z: -6.0 },
     seatSpacing: 1.6,
     room: { w: 18, d: 14, loungeFrom: 2.6 },
     hairColors: ['#2B2018', '#6B4A2F', '#C9A227', '#8B3A3A', '#3A5A8B',

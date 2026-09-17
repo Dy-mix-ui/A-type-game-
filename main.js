@@ -44,7 +44,7 @@
     SIM.on(type => {
       if (type === 'tick') {
         UI.renderTop();
-        if (UI.tab === 'projects' && SIM.state.minute % 5 === 0) dirty = true;
+        if ((UI.tab === 'projects' || UI.tab === 'users') && SIM.state.minute % 5 === 0) dirty = true;
       } else {
         dirty = true;
       }
