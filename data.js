@@ -78,6 +78,14 @@ window.DATA = (function () {
     penaltyRate: 0.15   // 満たさない月は給付費を15%減算
   };
 
+  /* ---------- 職員の出退勤 ---------- */
+  const STAFF_ATTEND = {
+    absenceBase: 0.02,     // 通常時の欠勤（体調不良など）の確率
+    paidLeaveBase: 0.025,  // 通常時の有給取得の確率
+    busyProjectCount: 3,   // 進行中の案件がこれ以上あると「立て込んでいる」扱い
+    busyMult: 0.35         // 立て込んでいるときの欠勤・有給の低減率
+  };
+
   /* ---------- 案件 ---------- */
   // tier: 1=個人・小規模 2=中小企業 3=大企業
   // need はスキルレベル10段階基準。tier3 は面接では届かない Lv6 以上を要求し、勉強への投資を促す
@@ -250,7 +258,7 @@ window.DATA = (function () {
   return {
     TIME, SKILLS, SKILL_MAX, INTERVIEW_SKILL_CAP, STAFF_SKILL_MAX, STAFF_LEVEL_OFFSET,
     SKILL_UNLOCK, SKILL_RARITY,
-    EXP_TO_NEXT, ROLES, MONEY, STANDARD,
+    EXP_TO_NEXT, ROLES, MONEY, STANDARD, STAFF_ATTEND,
     PROJECT_TEMPLATES, TEACHING_TEMPLATES, TEACHING_OFFER,
     REPUTATION, WORK, STUDY, MORALE, QUALITY, TRANSITION, PROMOTE, MEETING,
     SURNAMES, GIVEN, OFFICE

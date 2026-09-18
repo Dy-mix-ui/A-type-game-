@@ -62,7 +62,8 @@ window.UI = (function () {
   /* ---------- 上部ステータス ---------- */
   function renderTop() {
     const s = S();
-    $('hudDay').textContent = `${s.month}期 ${s.day}日目`;
+    const dayInTerm = ((s.day - 1) % D.TIME.workdaysPerMonth) + 1;
+    $('hudDay').textContent = `${s.month}期 ${dayInTerm}日目`;
     $('hudTime').textContent = hhmm(s.minute);
     $('hudWelfare').textContent = yen(s.fundWelfare);
     $('hudBusiness').textContent = yen(s.fundBusiness);
@@ -334,7 +335,8 @@ window.UI = (function () {
       const c = el('div', 'card person');
       const h = el('div', 'card-h');
       h.appendChild(el('span', 'name', st.name));
-      h.appendChild(el('span', 'tier ' + (st.present ? 't2' : 'warn'), st.present ? stateLabel(st.state) : '欠勤'));
+      const staffAbsentLabel = st.leaveType === 'paid' ? '有給休暇' : '欠勤';
+      h.appendChild(el('span', 'tier ' + (st.present ? 't2' : 'warn'), st.present ? stateLabel(st.state) : staffAbsentLabel));
       c.appendChild(h);
 
       const roleRow = el('div', 'needs');

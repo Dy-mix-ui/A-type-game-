@@ -89,9 +89,11 @@ window.SIM = (function () {
     return sk;
   }
 
-  // 職員が持つ固有スキル（役割）は最大2つ。Webデザイナーだけは他と併せ持たない専門職
+  // 職員が持つ固有スキル（役割）は最大2つ。Webデザイナーだけは他と併せ持たない専門職。
+  // まず4つの役職から均等に1つ抽選し、それがデザイナーでなければ残り3つから改めて1〜2個を抽選する
   function randomStaffRoles() {
-    if (Math.random() < 0.25) return ['designer'];
+    const first = pick(Object.keys(D.ROLES));
+    if (first === 'designer') return ['designer'];
     const pool = ['teacher', 'manager', 'clerk'].sort(() => Math.random() - 0.5);
     return pool.slice(0, rint(1, 2));
   }
@@ -132,7 +134,7 @@ window.SIM = (function () {
       roles,
       designSkill: isDesigner ? { lv: opts.designLv || weightedLevel(D.SKILL_RARITY.staffCraft) } : null,
       skills: opts.skills || randomStaffSkills(),
-      assigned: null,
+      assigned: null, leaveType: null,
       present: false, state: 'home', desk: null,
       joinDay: S ? S.day : 0
     };
@@ -197,6 +199,18 @@ window.SIM = (function () {
     S.minute = D.TIME.dayStart;
     S.dayPhase = 'running';
 
+    // 採用済みの入社処理（出社判定より先に行い、入社初日から出勤できるようにする）
+    S.pendingHires = S.pendingHires.filter(h => {
+      if (h.day <= S.day) {
+        if (h.person.kind === 'user') S.users.push(h.person);
+        else S.staff.push(h.person);
+        assignDesks();
+        log(`${h.person.name} さんが入社しました。`, 'good');
+        return false;
+      }
+      return true;
+    });
+
     // 出社予定を決める
     S.users.forEach(u => {
       const p = clamp(
@@ -208,9 +222,16 @@ window.SIM = (function () {
       u.arriveAt = D.TIME.userStart - rint(5, 40);
       if (u.present) { u.attendDays++; S.monthlyWelfareDays++; }
     });
+    // 職員の欠勤・有給。案件が立て込んでいるときは取りにくい
+    const busy = S.projects.filter(p => p.kind !== 'teaching').length >= D.STAFF_ATTEND.busyProjectCount;
+    const busyMult = busy ? D.STAFF_ATTEND.busyMult : 1;
     S.staff.forEach(s => {
-      s.present = Math.random() < 0.97;
-      s.state = s.present ? 'home' : 'absent';
+      const r = Math.random();
+      const absenceP = D.STAFF_ATTEND.absenceBase * busyMult;
+      const leaveP = D.STAFF_ATTEND.paidLeaveBase * busyMult;
+      if (r < absenceP) { s.present = false; s.state = 'absent'; s.leaveType = 'sick'; }
+      else if (r < absenceP + leaveP) { s.present = false; s.state = 'absent'; s.leaveType = 'paid'; }
+      else { s.present = true; s.state = 'home'; s.leaveType = null; }
       s.arriveAt = D.TIME.dayStart - rint(0, 15);
     });
     if (S.ceo) {
@@ -219,18 +240,6 @@ window.SIM = (function () {
       S.ceo.arriveAt = D.TIME.dayStart - rint(10, 30);
       S.ceoLeaveAt = rint(D.TIME.ceoLeaveRange[0], D.TIME.ceoLeaveRange[1]);
     }
-
-    // 採用済みの入社処理
-    S.pendingHires = S.pendingHires.filter(h => {
-      if (h.day <= S.day) {
-        if (h.person.kind === 'user') S.users.push(h.person);
-        else S.staff.push(h.person);
-        assignDesks();
-        log(`${h.person.name} さんが入社しました。`, 'good');
-        return false;
-      }
-      return true;
-    });
 
     const absent = S.users.filter(u => !u.present).length;
     if (absent > 0) log(`本日の欠勤 ${absent}名。`, absent > 2 ? 'warn' : 'info');

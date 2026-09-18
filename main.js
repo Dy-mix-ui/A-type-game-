@@ -106,7 +106,8 @@
         lastPeriodicRender = now;
       }
 
-      if (has3D) { WORLD.sync(s); WORLD.render(dt); }
+      // キャラクターの動きもゲーム速度に合わせて早送りする
+      if (has3D) { WORLD.sync(s); WORLD.render(s.paused ? dt : dt * s.speed); }
       // プルダウンを開いて選んでいる間はDOMを作り直さない
       if (dirty && !isPickingOption()) { UI.render(); dirty = false; }
     } catch (err) {

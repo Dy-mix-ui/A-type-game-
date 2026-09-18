@@ -10,10 +10,12 @@ window.WORLD = (function () {
   let renderer, scene, camera, container;
   let avatars = {};
   let seats = [];            // { pos, rot }
-  let breakSpots = [], lunchSpots = [];
+  let breakSpots = [], lunchSpots = [], tvSpots = [];
   let entrance = null, entranceOutside = null;
   let camAngle = 0.62, camZoom = 21, camDist = 34;
-  let dragging = false, lastX = 0;
+  let dragging = false, lastX = 0, dragSign = 1;
+  const activePointers = new Map();
+  let pinchStartDist = 0, pinchStartZoom = 21;
 
   const v = (x, y, z) => new THREE.Vector3(x, y, z);
   const lam = c => new THREE.MeshLambertMaterial({ color: c });
@@ -48,11 +50,48 @@ window.WORLD = (function () {
 
     window.addEventListener('resize', resize);
     const dom = renderer.domElement;
-    dom.addEventListener('pointerdown', e => { dragging = true; lastX = e.clientX; });
-    window.addEventListener('pointerup', () => { dragging = false; });
+    dom.style.touchAction = 'none';  // ブラウザ標準のスクロール／ピンチと競合させない
+
+    function pinchDistance() {
+      const pts = [...activePointers.values()];
+      return Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+    }
+
+    dom.addEventListener('pointerdown', e => {
+      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (activePointers.size === 2) {
+        dragging = false;
+        pinchStartDist = pinchDistance();
+        pinchStartZoom = camZoom;
+      } else if (activePointers.size === 1) {
+        dragging = true;
+        lastX = e.clientX;
+        // スマホでは指の動きと同じ向きに回るよう、マウスドラッグとは逆にする
+        dragSign = e.pointerType === 'touch' ? -1 : 1;
+      }
+    });
+    window.addEventListener('pointerup', e => {
+      activePointers.delete(e.pointerId);
+      if (activePointers.size < 2) pinchStartDist = 0;
+      dragging = activePointers.size === 1;
+    });
+    window.addEventListener('pointercancel', e => {
+      activePointers.delete(e.pointerId);
+      pinchStartDist = 0;
+      dragging = false;
+    });
     window.addEventListener('pointermove', e => {
+      if (!activePointers.has(e.pointerId)) return;
+      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+      if (activePointers.size === 2 && pinchStartDist > 0) {
+        const dist = pinchDistance();
+        camZoom = Math.max(12, Math.min(34, pinchStartZoom * (pinchStartDist / dist)));
+        resize();
+        return;
+      }
       if (!dragging) return;
-      camAngle += (e.clientX - lastX) * 0.006;
+      camAngle += dragSign * (e.clientX - lastX) * 0.006;
       lastX = e.clientX;
     });
     dom.addEventListener('wheel', e => {
@@ -126,15 +165,16 @@ window.WORLD = (function () {
 
     // ラウンジ
     buildLounge();
+    buildTvCorner();
 
-    entrance = v(W / 2 - 1.4, 0, Dp / 2 - 1.2);
-    entranceOutside = v(W / 2 + 1.1, 0, Dp / 2 + 1.1);
-    buildDoor();
+    const doorX = W / 2 - 1.4;
+    entrance = v(doorX, 0, Dp / 2 - 0.7);
+    entranceOutside = v(doorX, 0, Dp / 2 + 1.4);
+    buildDoor(doorX, Dp / 2);
   }
 
-  // 出入口の目印（枠だけの簡単な扉）。ここを通って外と行き来する
-  function buildDoor() {
-    const x = entrance.x, z = entrance.z + 0.55;
+  // 出入口の目印（枠だけの簡単な扉）。壁の切れ目にあたる位置に置き、ここを通って外と行き来する
+  function buildDoor(x, z) {
     const g = new THREE.Group();
     g.add(box(0.9, 0.06, 0.08, C.doorFrame, 0, 1.85, 0, false));
     g.add(box(0.08, 1.9, 0.08, C.doorFrame, -0.45, 0.95, 0, false));
@@ -254,6 +294,22 @@ window.WORLD = (function () {
     scene.add(box(0.5, 1.1, 3.0, C.deskTop, -O.room.w / 2 + 0.7, 0.55, Dp / 2 - 2.4));
   }
 
+  // 休憩時間に息抜きできるテレビ台。休憩中の一部の人がここでゲームをする
+  function buildTvCorner() {
+    const x = O.room.loungeFrom + 1.3, z = -O.room.d / 2 + 1.6;
+    scene.add(box(1.1, 0.5, 0.35, C.deskTop, x, 0.25, z - 0.35));
+    scene.add(box(0.9, 0.55, 0.06, C.monitor, x, 0.85, z - 0.35));
+    const glow = new THREE.Mesh(new THREE.PlaneGeometry(0.78, 0.44), new THREE.MeshBasicMaterial({ color: '#9FE8C8' }));
+    glow.position.set(x, 0.85, z - 0.31);
+    scene.add(glow);
+    [-0.5, 0.5].forEach(dx => {
+      const cushion = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.32, 0.12, 16), lam(C.sofa));
+      cushion.position.set(x + dx, 0.06, z + 1.0); cushion.castShadow = true;
+      scene.add(cushion);
+      tvSpots.push(v(x + dx, 0, z + 1.0));
+    });
+  }
+
   function makePlant(x, z) {
     const g = new THREE.Group();
     const pot = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.22, 0.4, 12), lam(C.pot));
@@ -271,53 +327,69 @@ window.WORLD = (function () {
   }
 
   /* ---------- キャラクター（3頭身） ---------- */
-  function hairFor(id) {
+  function hashId(id) {
     let h = 0;
     for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
-    return O.hairColors[h % O.hairColors.length];
+    return h;
+  }
+  function hairFor(id) {
+    return O.hairColors[hashId(id) % O.hairColors.length];
   }
 
   function makeAvatar(person) {
     const g = new THREE.Group();
-    const HEAD = 0.34;                       // 頭の半径。全高はこの約3倍
+    const HEAD = 0.34;                       // 頭の半径
     const isCeo = person.kind === 'ceo';
     const isStaff = person.kind === 'staff' || isCeo;
     const shirt = isCeo ? C.shirtCeo : isStaff ? C.shirtStaff : C.shirt;
     if (isCeo) g.scale.set(1.08, 1.08, 1.08);
 
-    // 脚
-    [-0.15, 0.15].forEach(dx => {
-      const l = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.1, 0.5, 10), lam(C.pants));
-      l.position.set(dx, 0.25, 0); l.castShadow = true;
-      g.add(l);
+    // ミニキャラらしく胴と脚を詰めて、頭を相対的に大きく見せる
+    const HIP_Y = 0.44, SHOULDER_Y = 0.90;
+
+    // 脚（腰のグループごと前後に振れるようにする）
+    const legs = [-0.15, 0.15].map(dx => {
+      const hip = new THREE.Group();
+      hip.position.set(dx, HIP_Y, 0);
+      const l = new THREE.Mesh(new THREE.CylinderGeometry(0.115, 0.1, 0.44, 10), lam(C.pants));
+      l.position.y = -0.22; l.castShadow = true;
+      hip.add(l);
+      g.add(hip);
+      return hip;
     });
+
     // 胴
-    const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.29, 0.25, 0.62, 12), lam(shirt));
-    torso.position.y = 0.81; torso.castShadow = true;
+    const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.26, 0.5, 12), lam(shirt));
+    torso.position.y = HIP_Y + 0.25; torso.castShadow = true;
     g.add(torso);
     // ネクタイ（職員・社長は一目でわかるように）
     if (isStaff) {
-      const tie = box(0.09, 0.5, 0.03, isCeo ? C.tieCeo : C.tieStaff, 0, 0.9, 0.245);
+      const tie = box(0.09, 0.36, 0.03, isCeo ? C.tieCeo : C.tieStaff, 0, HIP_Y + 0.3, 0.255);
       tie.castShadow = false;
       g.add(tie);
     }
     // 肩の丸み
-    const sh = new THREE.Mesh(new THREE.SphereGeometry(0.29, 12, 8), lam(shirt));
-    sh.position.y = 1.09; sh.scale.set(1, 0.55, 1); sh.castShadow = true;
+    const sh = new THREE.Mesh(new THREE.SphereGeometry(0.3, 12, 8), lam(shirt));
+    sh.position.y = SHOULDER_Y; sh.scale.set(1, 0.5, 1); sh.castShadow = true;
     g.add(sh);
-    // 腕
-    [-0.34, 0.34].forEach(dx => {
-      const a = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.08, 0.5, 8), lam(shirt));
-      a.position.set(dx, 0.85, 0.02);
-      a.rotation.z = dx < 0 ? 0.12 : -0.12;
-      a.castShadow = true;
-      g.add(a);
+    // 腕（肩のグループごと振れるようにする）
+    const arms = [-0.34, 0.34].map(dx => {
+      const shoulder = new THREE.Group();
+      shoulder.position.set(dx, SHOULDER_Y, 0.02);
+      const a = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.085, 0.4, 8), lam(shirt));
+      a.position.y = -0.2; a.castShadow = true;
+      shoulder.add(a);
+      shoulder.rotation.z = dx < 0 ? 0.1 : -0.1;
+      g.add(shoulder);
+      return shoulder;
     });
-    // 首
-    g.add(box(0.14, 0.1, 0.14, C.skin, 0, 1.17, 0));
+    // 首（ミニキャラらしく短め）
+    const neckY = SHOULDER_Y + 0.09;
+    g.add(box(0.15, 0.07, 0.15, C.skin, 0, neckY, 0));
     // 頭
+    const headY = neckY + 0.04 + HEAD + 0.02;
     const head = new THREE.Mesh(new THREE.SphereGeometry(HEAD, 18, 14), lam(C.skin));
-    head.position.y = 1.17 + HEAD + 0.04;
+    head.position.y = headY;
     head.castShadow = true;
     g.add(head);
     // 髪（人によって色が違う）
@@ -325,30 +397,42 @@ window.WORLD = (function () {
       new THREE.SphereGeometry(HEAD + 0.025, 18, 14, 0, Math.PI * 2, 0, Math.PI * 0.62),
       lam(hairFor(person.id))
     );
-    hair.position.y = head.position.y + 0.015;
+    hair.position.y = headY + 0.015;
     hair.castShadow = true;
     g.add(hair);
     // 後ろ髪
     const back = new THREE.Mesh(new THREE.SphereGeometry(HEAD * 0.92, 14, 10), lam(hairFor(person.id)));
-    back.position.set(0, head.position.y - 0.06, -0.09);
+    back.position.set(0, headY - 0.06, -0.09);
     back.scale.set(1, 0.9, 0.7);
     g.add(back);
 
-    // 顔（簡単な目だけ）
+    // 顔（目と口）
     [-0.12, 0.12].forEach(dx => {
       const eye = new THREE.Mesh(new THREE.SphereGeometry(0.04, 8, 6), lam(C.eye));
-      eye.position.set(dx, head.position.y - 0.02, HEAD * 1.02);
+      eye.position.set(dx, headY - 0.02, HEAD * 1.02);
       g.add(eye);
     });
+    const mouth = box(0.11, 0.03, 0.02, C.eye, 0, headY - 0.16, HEAD * 1.0, false);
+    g.add(mouth);
 
     scene.add(g);
     return {
-      group: g, target: entrance.clone(), targetRot: 0,
+      group: g, legs, arms, target: entrance.clone(), targetRot: 0,
+      waypoints: [entrance.clone()], lastDest: null,
       seated: false, phase: Math.random() * 6, spawned: false
     };
   }
 
   /* ---------- 状態の反映 ---------- */
+  // ラウンジ側⇄什器側をまたぐ移動は、机や壁を避けて通路（島の外）を経由させる簡易版
+  const CORRIDOR_X = O.room.loungeFrom + 0.6;
+  function routeTo(fromPos, dest) {
+    const fromSide = fromPos.x > CORRIDOR_X;
+    const toSide = dest.x > CORRIDOR_X;
+    if (fromSide === toSide) return [dest.clone()];
+    return [v(CORRIDOR_X, 0, fromPos.z), v(CORRIDOR_X, 0, dest.z), dest.clone()];
+  }
+
   function sync(state) {
     if (!scene) return;
     const people = state.users.concat(state.staff).concat(state.ceo ? [state.ceo] : []);
@@ -372,9 +456,21 @@ window.WORLD = (function () {
           if (seat) { target = seat.pos; rot = seat.rot; seated = true; }
           break;
         case 'break':
-          target = breakSpots[i % breakSpots.length]; rot = -Math.PI / 2; break;
-        case 'lunch':
-          target = lunchSpots[i % lunchSpots.length]; break;
+          // 休憩は人によってソファに行ったり、テレビでひと息ついたり
+          if (hashId(p.id + ':break') % 2 === 0) { target = breakSpots[i % breakSpots.length]; rot = -Math.PI / 2; }
+          else { target = tvSpots[i % tvSpots.length]; rot = Math.PI; }
+          break;
+        case 'lunch': {
+          // 昼休みは丸テーブル・ソファに加えて、外に食べに（買いに）出る人もいる
+          const lunchChoice = hashId(p.id + ':lunch') % 3;
+          if (lunchChoice === 0) { target = lunchSpots[i % lunchSpots.length]; }
+          else if (lunchChoice === 1) { target = breakSpots[i % breakSpots.length]; rot = -Math.PI / 2; }
+          else {
+            target = entranceOutside;
+            if (a.group.position.distanceTo(entranceOutside) < 0.2) visible = false;
+          }
+          break;
+        }
         case 'left':
           target = entranceOutside;
           // 扉の外まで出たら、その日はもう見えなくする
@@ -384,7 +480,11 @@ window.WORLD = (function () {
 
       if (visible && !a.spawned) { a.group.position.copy(entranceOutside); a.spawned = true; }
       a.group.visible = visible;
-      a.target.copy(target);
+      if (!a.lastDest || !a.lastDest.equals(target)) {
+        a.waypoints = routeTo(a.group.position, target);
+        a.lastDest = target.clone();
+      }
+      a.target.copy(a.waypoints[0]);
       a.targetRot = rot;
       a.seated = seated;
     });
@@ -411,13 +511,21 @@ window.WORLD = (function () {
         g.rotation.y += shortestAngle(g.rotation.y, want) * Math.min(1, dt * 9);
         a.phase += dt * 9;
         g.position.y = Math.abs(Math.sin(a.phase)) * 0.055;   // 歩く上下動
+        const swing = Math.sin(a.phase) * 0.5;
+        a.legs[0].rotation.x = swing; a.legs[1].rotation.x = -swing;
+        a.arms[0].rotation.x = -swing * 0.8; a.arms[1].rotation.x = swing * 0.8;
+      } else if (a.waypoints.length > 1) {
+        a.waypoints.shift();
+        a.target.copy(a.waypoints[0]);
       } else {
         if (a.targetRot != null) {
           g.rotation.y += shortestAngle(g.rotation.y, a.targetRot) * Math.min(1, dt * 7);
         }
+        a.legs[0].rotation.x *= 0.8; a.legs[1].rotation.x *= 0.8;
+        a.arms[0].rotation.x *= 0.8; a.arms[1].rotation.x *= 0.8;
         if (a.seated) {
           a.phase += dt * 2.2;
-          g.position.y = -0.30 + Math.sin(a.phase) * 0.008;   // 着席
+          g.position.y = -0.26 + Math.sin(a.phase) * 0.008;   // 着席
         } else {
           g.position.y = 0;
         }
