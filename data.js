@@ -30,23 +30,32 @@ window.DATA = (function () {
 
   const SKILL_MAX = 10;            // 利用者のスキル上限（勉強でここまで伸ばせる）
   const INTERVIEW_SKILL_CAP = 5;   // 面接（採用時点）で持ちうるスキルの上限。6以上は勉強でしか伸ばせない
-  const STAFF_SKILL_MAX = 5;       // 職員の得意分野（案件スキル）の上限。勉強では伸びない固定値
+  const STAFF_SKILL_MAX = 5;       // 職員のスキル（技術・デザインとも）の上限。勉強では伸びない固定値
+  const STAFF_LEVEL_OFFSET = 2;    // 職員のスキルLv1 ≒ 利用者のLv3。案件との適性判定はこの下駄を履かせて比較する
 
   // レベルを上げるのに必要な経験値（Lv1→2 … Lv9→10）。Lv6以降は面接では絶対に届かない領域
   const EXP_TO_NEXT = [0, 640, 1600, 3500, 6700, 10000, 15000, 22000, 33000, 50000, Infinity];
 
+  // 利用者のスキルツリー。HTML/CSSは最初から使えるが、JS・PHP/WPは条件を満たすまで学べない
+  // （面接で採用した人は、習得前でもすでに身につけている場合がある）
+  const SKILL_UNLOCK = {
+    jsRequireLv: 3,        // HTML・CSSが両方これ以上でJSが解放
+    advRequireCoreLv: 5,   // HTML・CSSが両方これ以上、かつ
+    advRequireJsLv: 3      // JSがこれ以上でPHP・WPが解放
+  };
+
   // 面接で出会う人のスキルレベルの出現比率（レア度）。添字0=Lv1 … 添字4=Lv5
-  // 高レベルほど出にくい
+  // 高レベルほど出にくいが、評価が高いほど高レベルが出やすくなる（maybeApplicant参照）
   const SKILL_RARITY = {
     userSpecialty: [46, 28, 15, 8, 3],   // 利用者の得意分野の初期レベル
-    staffCraft: [46, 28, 15, 8, 3]       // 職員の得意分野（案件スキル）
+    staffCraft: [46, 28, 15, 8, 3]       // 職員の技術・デザインスキル
   };
 
   /* ---------- 職員の役割 ---------- */
-  // 職員が担うのはこの4つのうち1つだけ。ランダムに決まり、役割自体にレベルはない
-  // （デザイナーの実力は下の技術スキルで決まる）
+  // 職員は「Webデザイナー／講師／案件割り振り／事務員」のうち最大2つを固有スキルとして持つ。
+  // Webデザイナーだけは専門職で、他の役割とは絶対に併せ持たない
   const ROLES = {
-    designer: { label: 'Webデザイナー', desc: '案件の制作に直接入る。持っているスキルで品質と速度が変わる' },
+    designer: { label: 'Webデザイナー', desc: 'デザイン工程を担当する。デザインスキルで速さと品質が変わる専門職' },
     manager: { label: '案件割り振り', desc: '手が空いた利用者に自動で仕事を回す' },
     teacher: { label: '講師', desc: '勉強モードの利用者の習得速度を上げる' },
     clerk: { label: '事務員', desc: '備品・経理を回す。不足すると全体効率が落ちる' }
@@ -118,11 +127,15 @@ window.DATA = (function () {
   const WORK = {
     baseOutputPerMin: 0.40,       // 利用者1人が1ゲーム分に生む作業量の基準
     designerOutputPerMin: 1.0,   // 職員デザイナーの作業量
+    codeOutputPerMin: 1.0,       // コーディングに参加する職員の作業量
     levelBonus: 0.22,            // 必要レベルを1超えるごとの加算
     levelPenalty: 0.22,          // 必要レベルに1足りないごとの減算
     moraleWeight: 0.5,           // やる気が生産量に与える影響の強さ
     clerkShortagePenalty: 0.18,  // 事務員不足1人あたりの全体効率低下
-    onJobExpRate: 0.35           // 案件で使ったスキルの実地上達率（勉強の半分未満）
+    onJobExpRate: 0.35,          // 案件で使ったスキルの実地上達率（勉強の半分未満）
+    designEffortRatio: 0.15,     // 案件の工数のうちデザイン工程が占める割合
+    designQualityBase: 0.7,      // デザインスキルLv1のときの品質倍率
+    designQualityPerLevel: 0.15  // デザインスキル1あたりの品質倍率の上乗せ
   };
 
   /* ---------- 勉強 ---------- */
@@ -156,18 +169,32 @@ window.DATA = (function () {
   const TRANSITION = {
     avgSkillRequired: 3.6,   // 全スキル平均がこれを超えると候補になる
     moraleRequired: 70,
-    chancePerDay: 0.035,     // 候補者1人が1日にオファーを受ける確率
     repGain: 6,              // 送り出したときの評価上昇
     moraleGainOthers: 3      // 他の利用者のやる気上昇
+  };
+
+  /* ---------- 職員への昇進 ---------- */
+  const PROMOTE = {
+    avgSkillRequired: 4.0,   // 全スキル平均がこれを超えると昇進の話が出る
+    moraleRequired: 65
+  };
+
+  /* ---------- 面談 ---------- */
+  const MEETING = {
+    minAttendDays: 5,     // これだけ出勤しないと面談の話が出ない
+    chancePerDay: 0.06    // 条件を満たした利用者が1日に面談を希望する確率
   };
 
   /* ---------- 名前 ---------- */
   const SURNAMES = ['佐藤', '鈴木', '高橋', '田中', '伊藤', '渡辺', '山本', '中村', '小林', '加藤',
     '吉田', '山田', '佐々木', '山口', '松本', '井上', '木村', '林', '斎藤', '清水',
-    '山崎', '森', '池田', '橋本', '石川', '前田', '藤田', '後藤', '岡田', '長谷川'];
+    '山崎', '森', '池田', '橋本', '石川', '前田', '藤田', '後藤', '岡田', '長谷川',
+    '村上', '近藤', '石井', '坂本', '遠藤', '青木', '福田', '三浦', '西村', '藤井',
+    '岡本', '中川', '中野', '原田', '小川', '竹内', '金子', '和田', '中山', '石田'];
   const GIVEN = ['翔太', '陽菜', '大輔', '美咲', '健太', '結衣', '拓也', '彩香', '直樹', '真由',
     '亮', '沙織', '雄大', '琴音', '和也', '麻衣', '智也', '香織', '達也', '瑞希',
-    '諒', '菜々', '悠斗', '千夏', '圭介', '愛美', '光', '遥', '匠', '柚希'];
+    '諒', '菜々', '悠斗', '千夏', '圭介', '愛美', '光', '遥', '匠', '柚希',
+    '大樹', '美穂', '航', '未来', '蒼', '楓', '陸', '桃子', '悠真', '梨花'];
 
   /* ---------- 3Dオフィス ---------- */
   // 島型のデスク。seatsPerSide の両側に座るので、1島あたり seatsPerSide×2 席
@@ -221,10 +248,11 @@ window.DATA = (function () {
 
 
   return {
-    TIME, SKILLS, SKILL_MAX, INTERVIEW_SKILL_CAP, STAFF_SKILL_MAX, SKILL_RARITY,
+    TIME, SKILLS, SKILL_MAX, INTERVIEW_SKILL_CAP, STAFF_SKILL_MAX, STAFF_LEVEL_OFFSET,
+    SKILL_UNLOCK, SKILL_RARITY,
     EXP_TO_NEXT, ROLES, MONEY, STANDARD,
     PROJECT_TEMPLATES, TEACHING_TEMPLATES, TEACHING_OFFER,
-    REPUTATION, WORK, STUDY, MORALE, QUALITY, TRANSITION,
+    REPUTATION, WORK, STUDY, MORALE, QUALITY, TRANSITION, PROMOTE, MEETING,
     SURNAMES, GIVEN, OFFICE
   };
 })();

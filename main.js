@@ -10,6 +10,12 @@
   let acc = 0, last = performance.now();
   let dirty = true;
   let has3D = false;
+  let lastPeriodicRender = 0;
+
+  // プルダウン操作中はDOMを作り直さない（早送り中の再描画で選択肢が閉じてしまうのを防ぐ）
+  function isPickingOption() {
+    return !!(document.activeElement && document.activeElement.tagName === 'SELECT');
+  }
 
   /* ---------- エラーを画面に出す ---------- */
   function showError(msg) {
@@ -44,7 +50,6 @@
     SIM.on(type => {
       if (type === 'tick') {
         UI.renderTop();
-        if ((UI.tab === 'projects' || UI.tab === 'users') && SIM.state.minute % 5 === 0) dirty = true;
       } else {
         dirty = true;
       }
@@ -95,8 +100,15 @@
         }
       }
 
+      // 進行中・利用者タブは実時間の間隔で更新する（ゲーム速度に連動させると早送り中に頻繁に再描画されてしまう）
+      if ((UI.tab === 'projects' || UI.tab === 'users') && now - lastPeriodicRender > 500) {
+        dirty = true;
+        lastPeriodicRender = now;
+      }
+
       if (has3D) { WORLD.sync(s); WORLD.render(dt); }
-      if (dirty) { UI.render(); dirty = false; }
+      // プルダウンを開いて選んでいる間はDOMを作り直さない
+      if (dirty && !isPickingOption()) { UI.render(); dirty = false; }
     } catch (err) {
       showError('実行中のエラー: ' + (err && err.message ? err.message : err));
       return;   // ループを止めてエラーを読めるようにする
